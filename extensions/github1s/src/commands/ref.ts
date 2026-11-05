@@ -5,41 +5,54 @@
 
 import * as vscode from 'vscode';
 import router from '@/router';
-import repository from '@/repository';
+import { Repository } from '@/repository';
 
-export const commandGetCurrentAuthority = () => router.getAuthority();
+const loadMorePickerItem: vscode.QuickPickItem = {
+	label: '$(more) Load More',
+	alwaysShow: true,
+};
 
-export const commandCheckoutRef = async () => {
-	const [branchRefs, tagRefs] = await Promise.all([
-		repository.getBranches(),
-		repository.getTags(),
-	]);
-	const branchPickerItems: vscode.QuickPickItem[] = branchRefs.map(
-		(branchRef) => ({
-			label: branchRef.name,
-			description: (branchRef.object?.sha || '').slice(0, 8),
-		})
-	);
-	const tagPickerItems: vscode.QuickPickItem[] = tagRefs.map((tagRef) => ({
-		label: tagRef.name,
-		description: `Tag at ${(tagRef.object?.sha || '').slice(0, 8)}`,
-	}));
+const checkoutToItem: vscode.QuickPickItem = {
+	label: '$(debug-disconnect) Checkout detached',
+	alwaysShow: true,
+};
 
+// check out to branch/tag/commit
+const commandCheckoutTo = async () => {
+	const routeState = router.getState();
+	const repository = Repository.getCurrentInstance();
 	const quickPick = vscode.window.createQuickPick();
-	const routerState = await router.getState();
-	quickPick.placeholder = routerState.ref;
-	quickPick.items = [...branchPickerItems, ...tagPickerItems];
 
+	const loadMoreRefPickerItems = async () => {
+		quickPick.busy = true;
+		await Promise.all([repository.loadMoreBranches(), repository.loadMoreTags()]);
+		const [branchRefs, tagRefs] = await Promise.all([repository.getBranchList(), repository.getTagList()]);
+		const refPickerItems = [...branchRefs, ...tagRefs].map((ref) => ({
+			label: ref.name,
+			description: ref.description,
+		}));
+		const hasMore = (await Promise.all([repository.hasMoreBranches(), repository.hasMoreTags()])).some(Boolean);
+		quickPick.items = [...refPickerItems, hasMore ? loadMorePickerItem : null!, checkoutToItem].filter(Boolean);
+		quickPick.busy = false;
+	};
+
+	quickPick.placeholder = 'Input a ref to checkout';
+	quickPick.items = [checkoutToItem];
+	loadMoreRefPickerItems();
 	quickPick.show();
-	const choice = await new Promise<vscode.QuickPickItem | undefined>(
-		(resolve) => quickPick.onDidAccept(() => resolve(quickPick.activeItems[0]))
-	);
-	quickPick.hide();
 
-	const targetRef = choice?.label || quickPick.value;
-	if (targetRef.toUpperCase() === 'HEAD') {
-		router.replace(`/${routerState.owner}/${routerState.repo}`);
-		return;
-	}
-	router.replace(`/${routerState.owner}/${routerState.repo}/tree/${targetRef}`);
+	quickPick.onDidAccept(async () => {
+		const choice = quickPick.activeItems[0];
+		if (choice === loadMorePickerItem) {
+			return loadMoreRefPickerItems();
+		}
+		const selectedRef = choice === checkoutToItem ? quickPick.value : choice?.label;
+		const targetRef = selectedRef.toUpperCase() !== 'HEAD' ? selectedRef : undefined;
+		router.push(await router.getParser().buildTreePath(routeState.repo, targetRef));
+		quickPick.hide();
+	});
+};
+
+export const registerRefCommands = (context: vscode.ExtensionContext) => {
+	return context.subscriptions.push(vscode.commands.registerCommand('github1s.commands.checkoutTo', commandCheckoutTo));
 };

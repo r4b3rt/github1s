@@ -4,7 +4,7 @@
  */
 
 import * as jsonStableStringify from 'json-stable-stringify';
-import * as pFinally from 'p-finally';
+import pFinally from 'p-finally';
 
 const defaultComputeCacheKey = (...args) => jsonStableStringify([...args]);
 
@@ -12,14 +12,14 @@ const defaultComputeCacheKey = (...args) => jsonStableStringify([...args]);
 // and previous request not completed
 export const reuseable = <T extends (...args: any[]) => Promise<any>>(
 	func: T,
-	computeCacheKey: (...args: Parameters<T>) => string = defaultComputeCacheKey
+	computeCacheKey: (...args: Parameters<T>) => string = defaultComputeCacheKey,
 ) => {
 	const cache = new Map<string, ReturnType<T>>();
 
 	return function (...args: Parameters<T>): ReturnType<T> {
 		const key = computeCacheKey(...args);
 		if (cache.has(key)) {
-			return cache.get(key);
+			return cache.get(key)!;
 		}
 
 		const promise = func.call(this, ...args);
@@ -28,12 +28,9 @@ export const reuseable = <T extends (...args: any[]) => Promise<any>>(
 	};
 };
 
-export const throttle = <T extends (...args: any[]) => any>(
-	func: T,
-	interval: number
-) => {
-	let timer = null;
-	return function (...args: Parameters<T>): ReturnType<T> {
+export const throttle = <T extends (...args: any[]) => any>(func: T, interval: number) => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	return function (...args: Parameters<T>): ReturnType<T> | undefined {
 		if (timer) {
 			return;
 		}
@@ -42,11 +39,8 @@ export const throttle = <T extends (...args: any[]) => any>(
 	};
 };
 
-export const debounce = <T extends (...args: any[]) => any>(
-	func: T,
-	wait: number
-) => {
-	let timer = null;
+export const debounce = <T extends (...args: any[]) => any>(func: T, wait: number) => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
 	return function (...args: Parameters<T>): void {
 		timer && clearTimeout(timer);
 		timer = setTimeout(() => func.call(this, ...args), wait);
@@ -54,12 +48,9 @@ export const debounce = <T extends (...args: any[]) => any>(
 };
 
 // debounce an async func. once an async func canceled, it throws a exception
-export const debounceAsyncFunc = <T extends (...args: any[]) => Promise<any>>(
-	func: T,
-	wait: number
-) => {
-	let timer = null;
-	let previousReject = null;
+export const debounceAsyncFunc = <T extends (...args: any[]) => Promise<any>>(func: T, wait: number) => {
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let previousReject: (() => any) | null = null;
 	return function (...args: Parameters<T>): ReturnType<T> {
 		return new Promise((resolve, reject) => {
 			timer && clearTimeout(timer);
@@ -67,5 +58,44 @@ export const debounceAsyncFunc = <T extends (...args: any[]) => Promise<any>>(
 			timer = setTimeout(() => resolve(func.call(this, ...args)), wait);
 			previousReject = reject;
 		}) as ReturnType<T>;
+	};
+};
+
+// memorize function result, beware of memory leaks!
+export const memorize = <T extends (...args: any[]) => any>(
+	func: T,
+	computeCacheKey: (...args: Parameters<T>) => string = defaultComputeCacheKey,
+) => {
+	const cache = new Map<string, ReturnType<T>>();
+
+	return function (...args: Parameters<T>): ReturnType<T> {
+		const key = computeCacheKey(...args);
+		if (cache.has(key)) {
+			return cache.get(key)!;
+		}
+
+		const result = func.call(this, ...args);
+		cache.set(key, result);
+		// Retain pending and fulfilled results, but allow the next call to retry a failure.
+		if (result && typeof result.then === 'function') {
+			Promise.resolve(result).catch(() => cache.delete(key));
+		}
+		return result;
+	};
+};
+
+export const decorate = <F extends (...args: unknown[]) => unknown>(transformer: (func: F) => F) => {
+	return <T>(_target: T, _propertyKey: string, descriptor: PropertyDescriptor) => {
+		const originalMethod: F = descriptor.value;
+		// Stateful transformers, such as memorize, need a separate wrapper for each instance.
+		const methods = new WeakMap<object, F>();
+		descriptor.value = function (this: object, ...args: Parameters<F>): ReturnType<F> {
+			let method = methods.get(this);
+			if (!method) {
+				method = transformer(originalMethod);
+				methods.set(this, method);
+			}
+			return method.apply(this, args);
+		};
 	};
 };

@@ -1,0 +1,66 @@
+/**
+ * @file GitHub1s TextSearchProvider (ctrl/cmd + shift + f)
+ * @author netcon
+ */
+
+import * as vscode from 'vscode';
+import router from '@/router';
+import { getAdapter } from '@/adapters';
+import * as adapterTypes from '@/adapters/types';
+
+const ensureArray = <T>(arrayOrItem: T | T[]): T[] => (Array.isArray(arrayOrItem) ? arrayOrItem : [arrayOrItem]);
+const createVscodeRange = (range: adapterTypes.Range) =>
+	new vscode.Range(range.start.line, range.start.character, range.end.line, range.end.character);
+
+export class GitHub1sTextSearchProvider implements vscode.TextSearchProvider, vscode.Disposable {
+	private static instance: GitHub1sTextSearchProvider | null = null;
+	private readonly disposable: vscode.Disposable;
+
+	private constructor() {}
+
+	public static getInstance(): GitHub1sTextSearchProvider {
+		if (GitHub1sTextSearchProvider.instance) {
+			return GitHub1sTextSearchProvider.instance;
+		}
+		return (GitHub1sTextSearchProvider.instance = new GitHub1sTextSearchProvider());
+	}
+
+	dispose() {
+		this.disposable?.dispose();
+	}
+
+	provideTextSearchResults(
+		query: vscode.TextSearchQuery,
+		options: vscode.TextSearchOptions,
+		progress: vscode.Progress<vscode.TextSearchResult>,
+		_token: vscode.CancellationToken,
+	) {
+		return Promise.resolve().then(async () => {
+			const { repo, ref } = router.getState();
+			const dataSource = await getAdapter().resolveDataSource();
+			const searchOptions = {
+				page: 1,
+				pageSize: 100,
+				path: options.folder.path,
+				includes: options.includes,
+				excludes: options.excludes,
+				maxResults: options.maxResults,
+			};
+			const searchResults = await dataSource.provideTextSearchResults(repo, ref, query, searchOptions);
+
+			(searchResults.results || []).forEach((item) => {
+				// because we set the authority of workspace as '' (on application start)
+				// at src/vs/code/browser/workbench/workbench.ts
+				// so don't specified authority here, or the VS Code won't use the results
+				const fileUri = router.buildUri({ path: item.path });
+				const ranges = ensureArray(item.ranges).map((range) => createVscodeRange(range));
+				const previewMatches = ensureArray(item.preview.matches).map((match) => createVscodeRange(match));
+				const preview = { text: item.preview.text, matches: previewMatches };
+
+				progress.report({ uri: fileUri, ranges, preview });
+			});
+
+			return { limitHit: searchResults.truncated };
+		});
+	}
+}

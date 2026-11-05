@@ -1,0 +1,36 @@
+{
+  "name": "@github1s/vscode-web",
+  "version": "0.30.3",
+  "description": "VS Code web for GitHub1s",
+  "author": "github1s",
+  "license": "MIT",
+  "type": "module",
+  "repository": "https://github.com/conwnet/github1s",
+  "scripts": {
+    "clone": "node scripts/clone.js",
+    "patch": "node scripts/patch.js",
+    "build": "run-s clone patch build:*",
+    "build:vscode": "node scripts/build/vscode.js",
+    "build:package": "node scripts/build/package.js",
+    "build:nls": "node scripts/build/nls.js",
+    "watch": "run-s clone patch && run-p watch:*",
+    "watch:source": "node scripts/watch/source.js",
+    "watch:vscode": "node scripts/watch/vscode.js",
+    "watch:extensions": "node scripts/watch/extensions.js"
+  },
+  "private": false,
+  "files": [
+    "/dist",
+    ".VERSION"
+  ],
+  "keywords": [
+    "vscode",
+    "vscode-web",
+    "github1s"
+  ],
+  "devDependencies": {
+    "chokidar": "^4.0.3",
+    "fs-extra": "^11.2.0",
+    "npm-run-all": "^4.1.5"
+  }
+}

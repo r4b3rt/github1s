@@ -3,34 +3,30 @@
  */
 
 import * as vscode from 'vscode';
+import { getAdapter } from '@/adapters';
+import { CodeReviewType } from '@/adapters/types';
 import { getExtensionContext } from '@/helpers/context';
-import { SettingsView } from './settings-view';
-import { PullRequestTreeDataProvider } from './pull-list-view';
-import { CommitTreeDataProvider } from './commit-list-view';
+import { CodeReviewTreeDataProvider } from './code-review-list';
 
-export const commitTreeDataProvider = new CommitTreeDataProvider();
-export const pullRequestTreeDataProvider = new PullRequestTreeDataProvider();
+export const codeReviewRequestTreeDataProvider = new CodeReviewTreeDataProvider();
+
+export const codeReviewViewTitle = {
+	[CodeReviewType.PullRequest]: 'Pull Requests',
+	[CodeReviewType.MergeRequest]: 'Merge Requests',
+	[CodeReviewType.ChangeRequest]: 'Change Requests',
+	[CodeReviewType.CodeReview]: 'Code Reviews',
+};
 
 export const registerCustomViews = () => {
 	const context = getExtensionContext();
 
-	context.subscriptions.push(
-		// register settings view
-		vscode.window.registerWebviewViewProvider(
-			SettingsView.viewType,
-			new SettingsView()
-		),
+	// register code review view which is in source control panel
+	const codeReviewTreeView = vscode.window.createTreeView(CodeReviewTreeDataProvider.viewType, {
+		treeDataProvider: codeReviewRequestTreeDataProvider,
+	});
+	// set code view list view title according code review type
+	const codeReviewType = getAdapter().codeReviewType || CodeReviewType.CodeReview;
+	codeReviewTreeView.title = codeReviewViewTitle[codeReviewType];
 
-		// register pull request view which is in source control panel
-		vscode.window.registerTreeDataProvider(
-			PullRequestTreeDataProvider.viewType,
-			pullRequestTreeDataProvider
-		),
-
-		// register commit view which is in source control panel
-		vscode.window.registerTreeDataProvider(
-			CommitTreeDataProvider.viewType,
-			commitTreeDataProvider
-		)
-	);
+	context.subscriptions.push(codeReviewTreeView);
 };
